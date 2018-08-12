@@ -1,0 +1,98 @@
+---
+title: "Human Activity Recognition"
+author: "J.Phillips"
+date: "11 August 2018"
+#output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive summary 
+
+This project creates a model to try to correctly classify how subjects performed a particular exercise taken from data collected from sensors the subjects were wearing as they performed the exercise. The data comes from the  Weight Lifting Exercises dataset which is part of the [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) by Velloso et al. The study involves 6 participants performing one set of 10 bicep curl repetitions in 5 different ways. The model attempts to identify from the various sensor readings which of the 5 ways the participant has performed the exercise.
+
+## Loading the data
+
+The training and testing data are available below:
+
+[Training set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)  
+[Testing set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+Read in the training and testing data.
+```{r}
+if (!file.exists("pml-training.csv") | 
+    !file.exists("pml-testing.csv"))
+    stop("Missing data file")
+
+if (!exists("training") & !exists("testing")) {
+    training <- read.csv("pml-training.csv", stringsAsFactors = FALSE)
+    testing <- read.csv("pml-testing.csv", stringsAsFactors = FALSE)
+}
+```
+
+## Exploratory data analysis
+The training set consists of 19622 observations with 160 variables. The variables are a mix of int, num and char types with a significant number of empty strings, NAs and DIV/0!s. The dependent variable 'classe' A-E represents the 5 different ways of performing the exercise.
+
+The testing set consists of 20 observations with 160 variables. Interestingly, this data set uses a mix of single, non consecutive observations from each participant rather than a series of overlapping sliding window time and data observations for each exercise. Also, the last column has replaced the 'classe' variable with a 'problem_id' variable.
+
+## Feature selection
+There are several features in the training set that are so sparsely populated with data that I felt they would have little value as predictors. I chose to remove the variables with greater than 50% NAs and greater than 50% empty strings. I also removed the first 7 columns of data that included an index, the participant name, 3 timestamp variables and new_window and num_window variables which I believe are related to the sliding time windows. I felt that as this is a study to see if an exercise can be correctly categorised by sensor readings, the timestamp and user id information is incidental to what is trying to be determined.
+
+```{r}
+# Remove columns with more than 50% NA
+training2 <- training[, -which(colMeans(is.na(training)) > 0.5)]
+# Remove columns that are more than 50% empty strings
+training3 <- training2[, -which(colMeans(training2 == "") > 0.5)]
+# Remove incidental variables
+training4 <- training3[,-(1:7)]
+```
+
+## Data partition
+
+This results in a much reduced subset of the original dataset. All predictors are now are of type int or num. 
+
+Now I'll take my fabulously important 53 variables and split the training set into training (train) and cross-validation (cv) sets - 70/30 split.
+
+```{r message=FALSE}
+library(caret)
+```
+
+```{r}
+set.seed(4824)
+inTrain <- createDataPartition(y=training4$classe, p=0.7, list=FALSE)
+train <- training4[inTrain, ]
+cv <- training4[-inTrain, ]
+```
+
+## Model creation
+
+I decided on a random forest model as the combination of multiple trees reduces the chance of overfitting the data. I set the ntree variable for 100 because leaving the default value was taking too damn long.
+
+```{r cache=TRUE}
+rfModel <- train(classe ~ ., data=train, method="rf", ntree=100)
+```
+
+## Prediction
+
+Running the prediction against the cross-validation set went well.
+```{r}
+pred <- predict(rfModel, cv)
+
+confusionMatrix(factor(cv$classe), pred)
+```
+
+The model has a very high in-sample cross validation accuracy of 0.9917 with a 95% confidence interval of between 0.989 and 0.9938.
+
+The plot below shows that using approximately 27 randomly selected predictors results in better model accuracy. The accuracy drops sharply as more predictors are included.
+
+```{r}
+plot(rfModel)
+```
+
+## Out-of-sample error estimation
+
+Although the in-sample cross validation accuracy is very high, one would expect out-of-sample accuracy to be slightly lower than in-sample accuracy as in-sample validation has more of a tendency to overfit the data. However, as the given test set has only 20 observations, it is likely this model will perform extremely well on the much smaller test set.
+
+
